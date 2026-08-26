@@ -1,0 +1,15 @@
+const db = require('./src/config/database');
+const logger = require('./src/utils/logger');
+
+async function testQuery() {
+    try {
+        const fact = await db.query(`SELECT CVE_DOC, RFC, DAT_ENVIO, CVE_CLPV, NUM_ALMA, CVE_VEND FROM FACTC16 WHERE CVE_DOC IN ('C-QR-025244', 'C-QR-025245')`);
+        console.log("New Quotes:", fact);
+        
+        process.exit(0);
+    } catch (e) {
+        console.error(e);
+        process.exit(1);
+    }
+}
+testQuery();

@@ -1,0 +1,1 @@
+const db = require('./src/config/database'); db.query('SELECT RDB$FIELD_TYPE, RDB$FIELD_LENGTH FROM RDB$RELATION_FIELDS RF JOIN RDB$FIELDS F ON RF.RDB$FIELD_SOURCE = F.RDB$FIELD_NAME WHERE RF.RDB$RELATION_NAME = \'FACTC15\' AND RF.RDB$FIELD_NAME = \'CVE_CLPV\'').then(res => console.log(res[0])).catch(console.error).finally(()=>process.exit(0));

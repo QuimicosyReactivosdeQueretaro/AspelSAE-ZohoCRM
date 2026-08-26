@@ -1,0 +1,73 @@
+require('dotenv').config();
+const saeRead = require('../src/services/saeRead');
+const zohoApi = require('../src/services/zohoApi');
+const logger = require('../src/utils/logger');
+
+/**
+ * ============================================================================
+ * ARCHIVO: sync-lineas.js
+ * ============================================================================
+ * Script de inyección masiva para poblar el campo "Línea de Producto" en Zoho.
+ * Recorre TODOS los productos en SAE e inyecta la línea correspondiente.
+ * ============================================================================
+ */
+
+async function main() {
+    logger.info('=== INICIANDO EXTRACCIÓN MASIVA DE LÍNEAS DE PRODUCTO ===');
+    try {
+        let totalProcessed = 0;
+        let totalSent = 0;
+        let offset = 0;
+        const limit = 100;
+        let hasMore = true;
+
+        while (hasMore) {
+            logger.info(`Extrayendo productos de SAE (Offset: ${offset})...`);
+            
+            const productosSae = await saeRead.getProductosSync(limit, offset);
+            
+            if (!productosSae || productosSae.length === 0) {
+                hasMore = false;
+                break;
+            }
+
+            logger.info(`Empaquetando ${productosSae.length} productos para Zoho...`);
+            
+            const zohoProducts = productosSae.map(p => ({
+                Product_Name: p.DESCR || 'Sin Descripción',
+                Product_Code: p.CVE_ART, 
+                Codigo_SAE: p.CVE_ART,
+                // Solo enviamos el campo Línea. Los campos numéricos los omitimos para no sobrescribir,
+                // pero si se envían, no importa porque SAE es la fuente de verdad.
+                L_nea_de_Producto: p.DESC_LIN || 'SIN LINEA'
+            }));
+
+            const response = await zohoApi.upsertProducts(zohoProducts);
+            if (response && response.data) {
+                const successCount = response.data.filter(r => r.status === 'success').length;
+                logger.info(`Lote enviado a Zoho. Éxitos: ${successCount}`);
+                totalSent += successCount;
+            }
+            
+            // Pausa de 1.5 segundos para no ahogar a Zoho
+            await new Promise(resolve => setTimeout(resolve, 1500));
+
+            totalProcessed += productosSae.length;
+            offset += limit;
+        }
+
+        logger.info('====================================================');
+        logger.info('INYECCIÓN MASIVA FINALIZADA');
+        logger.info(`Total de productos revisados en SAE: ${totalProcessed}`);
+        logger.info(`Total de productos actualizados en Zoho: ${totalSent}`);
+        logger.info('====================================================');
+        
+        process.exit(0);
+
+    } catch (error) {
+        logger.error(`Error en inyección masiva de líneas: ${error.message}`);
+        process.exit(1);
+    }
+}
+
+main();
