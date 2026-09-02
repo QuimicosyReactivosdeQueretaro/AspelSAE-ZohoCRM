@@ -103,6 +103,30 @@ class SaeWriteService {
             }
         }
 
+        // ============================================================
+        // CALCULAR IVA Y TOTAL DESDE LAS PARTIDAS (fuente de verdad: SAE)
+        // Los campos Suma_IVA y Total_Coti de Zoho son fórmulas/agregados
+        // que devuelven null cuando se leen por API. Por eso calculamos
+        // aquí directamente desde los datos que ya tenemos de SAE.
+        // ============================================================
+        let ivaCalculado = 0;
+        let subtotalCalculado = 0;
+        for (const pe of partidasEnriquecidas) {
+            if (pe.tipoElemInterno === 'K') continue; // los componentes del kit no suman al encabezado
+            const precioNeto = parseFloat(pe.precio || 0) * parseFloat(pe.cantidad || 1);
+            const descPartida = parseFloat(pe.descuento || 0);
+            const precioConDesc = precioNeto - descPartida;
+            const ivaPartida = precioConDesc * (parseFloat(pe.tasaIva || 0) / 100);
+            subtotalCalculado += precioNeto;
+            ivaCalculado += ivaPartida;
+        }
+        // Si Zoho mandó subtotal válido, respetarlo; si no, usar el calculado
+        const subtotalFinal = parseFloat(cotizacion.subtotal) > 0 ? parseFloat(cotizacion.subtotal) : subtotalCalculado;
+        const ivaFinal = ivaCalculado;
+        const totalFinal = subtotalFinal + ivaFinal - parseFloat(cotizacion.descuentoTotal || 0);
+
+        logger.info(`[saeWrite] Totales recalculados desde partidas → Subtotal: ${subtotalFinal}, IVA: ${ivaFinal}, Total: ${totalFinal}`);
+
         const headerUuid = uuidv4().toUpperCase();
         
         return new Promise((resolve, reject) => {
@@ -201,11 +225,11 @@ class SaeWriteService {
 
                         const paramsFact = [
                             fullFolio, paddedClave, 
-                            cotizacion.iva,
+                            ivaFinal,
                             comisionMonto, client.RFC, nextFolioNum, serie,
-                            numAlma, cotizacion.subtotal, paddedVendedor, cotizacion.descuentoTotal || 0, 
+                            numAlma, subtotalFinal, paddedVendedor, cotizacion.descuentoTotal || 0, 
                             nextCveInfo,
-                            cotizacion.total, comisionPorc,
+                            totalFinal, comisionPorc,
                             headerUuid, client.REG_FISC,
                             cveObsGen
                         ];
@@ -213,6 +237,32 @@ class SaeWriteService {
                         await new Promise((res, rej) => {
                             transaction.query(sqlFact, paramsFact, (err) => err ? rej(err) : res());
                         });
+
+                        // 2.7 Registro en Bitácora (BITA15)
+                        const bitaRows = await new Promise((res, rej) => transaction.query(
+                            `SELECT ULT_CVE FROM TBLCONTROL15 WHERE ID_TABLA = 62`, [], (err, result) => err ? rej(err) : res(result)
+                        ));
+                        const nextBita = parseInt(bitaRows[0].ULT_CVE, 10) + 1;
+                        await new Promise((res, rej) => transaction.query(
+                            `UPDATE TBLCONTROL15 SET ULT_CVE = ? WHERE ID_TABLA = 62`, [nextBita], (err) => err ? rej(err) : res()
+                        ));
+
+                        const nomUsuarioBita = (cotizacion.propietario || 'ZOHO_CRM').substring(0, 15);
+                        const obsBita = `No. [ ${fullFolio.trim()} ] $ ${totalFinal.toFixed(2)}`.substring(0, 55);
+
+                        await new Promise((res, rej) => transaction.query(
+                            `INSERT INTO BITA15 (CVE_BITA, CVE_CLIE, CVE_CAMPANIA, CVE_ACTIVIDAD, FECHAHORA, CVE_USUARIO, OBSERVACIONES, STATUS, NOM_USUARIO)
+                             VALUES (?, ?, '_SAE_', '    5', CURRENT_TIMESTAMP, 0, ?, 'F', ?)`,
+                            [nextBita, paddedClave, obsBita, nomUsuarioBita],
+                            (err) => err ? rej(err) : res()
+                        ));
+
+                        // Actualizar CVE_BITA en el encabezado de la cotización
+                        await new Promise((res, rej) => transaction.query(
+                            `UPDATE FACTC15 SET CVE_BITA = ? WHERE CVE_DOC = ?`, [nextBita, fullFolio], (err) => err ? rej(err) : res()
+                        ));
+
+                        logger.info(`[saeWrite] Bitácora registrada → CVE_BITA: ${nextBita}, Usuario: ${nomUsuarioBita}`);
 
                         // 3. Insertar Partidas
                         const sqlPar = `
@@ -399,6 +449,25 @@ class SaeWriteService {
                             }
                         }
 
+                        // ============================================================
+                        // CALCULAR IVA Y TOTAL DESDE LAS PARTIDAS (fuente de verdad: SAE)
+                        // ============================================================
+                        let ivaUpdate = 0;
+                        let subtotalUpdate = 0;
+                        for (const pe of partidasEnriquecidas) {
+                            if (pe.tipoElemInterno === 'K') continue;
+                            const precioNeto = parseFloat(pe.precio || 0) * parseFloat(pe.cantidad || 1);
+                            const descPartida = parseFloat(pe.descuento || 0);
+                            const precioConDesc = precioNeto - descPartida;
+                            const ivaPartida = precioConDesc * (parseFloat(pe.tasaIva || 0) / 100);
+                            subtotalUpdate += precioNeto;
+                            ivaUpdate += ivaPartida;
+                        }
+                        const subtotalUpdateFinal = parseFloat(cotizacion.subtotal) > 0 ? parseFloat(cotizacion.subtotal) : subtotalUpdate;
+                        const ivaUpdateFinal = ivaUpdate;
+                        const totalUpdateFinal = subtotalUpdateFinal + ivaUpdateFinal - parseFloat(cotizacion.descuentoTotal || 0);
+                        logger.info(`[saeWrite.update] Totales recalculados → Subtotal: ${subtotalUpdateFinal}, IVA: ${ivaUpdateFinal}, Total: ${totalUpdateFinal}`);
+
                         // 4. Actualizar Encabezado
                         const sqlUpdate = `
                             UPDATE FACTC15 SET 
@@ -410,7 +479,7 @@ class SaeWriteService {
                         `;
                         const paramsUpdate = [
                             paddedClave, client.RFC, paddedVendedor, client.REG_FISC,
-                            cotizacion.iva, cotizacion.total, cotizacion.descuentoTotal || 0, cotizacion.subtotal,
+                            ivaUpdateFinal, totalUpdateFinal, cotizacion.descuentoTotal || 0, subtotalUpdateFinal,
                             numAlma, fullFolio
                         ];
                         await new Promise((res, rej) => transaction.query(sqlUpdate, paramsUpdate, (e) => e ? rej(e) : res()));
@@ -610,6 +679,42 @@ class SaeWriteService {
                         await new Promise((res, rej) => {
                             transaction.query(sqlFactClib, [clavePedido], (err) => err ? rej(err) : res());
                         });
+
+                        // 4.6 Registro en Bitácora (BITA15) para el Pedido
+                        const bitaRowsP = await new Promise((res, rej) => transaction.query(
+                            `SELECT ULT_CVE FROM TBLCONTROL15 WHERE ID_TABLA = 62`, [], (err, result) => err ? rej(err) : res(result)
+                        ));
+                        const nextBitaP = parseInt(bitaRowsP[0].ULT_CVE, 10) + 1;
+                        await new Promise((res, rej) => transaction.query(
+                            `UPDATE TBLCONTROL15 SET ULT_CVE = ? WHERE ID_TABLA = 62`, [nextBitaP], (err) => err ? rej(err) : res()
+                        ));
+
+                        // Obtener nombre del propietario desde la bitácora de la cotización original
+                        let nomUsuarioPedido = 'ZOHO_CRM';
+                        if (cot.CVE_BITA > 0) {
+                            const bitaOrig = await new Promise((res, rej) => transaction.query(
+                                `SELECT NOM_USUARIO FROM BITA15 WHERE CVE_BITA = ?`, [cot.CVE_BITA], (err, result) => err ? rej(err) : res(result)
+                            ));
+                            if (bitaOrig && bitaOrig.length > 0 && bitaOrig[0].NOM_USUARIO) {
+                                nomUsuarioPedido = bitaOrig[0].NOM_USUARIO.trim();
+                            }
+                        }
+
+                        const obsBitaP = `No. [ ${clavePedido.trim()} ] $ ${(cot.IMPORTE || cot.CAN_TOT || 0).toFixed(2)}`.substring(0, 55);
+
+                        await new Promise((res, rej) => transaction.query(
+                            `INSERT INTO BITA15 (CVE_BITA, CVE_CLIE, CVE_CAMPANIA, CVE_ACTIVIDAD, FECHAHORA, CVE_USUARIO, OBSERVACIONES, STATUS, NOM_USUARIO)
+                             VALUES (?, ?, '_SAE_', '    4', CURRENT_TIMESTAMP, 0, ?, 'F', ?)`,
+                            [nextBitaP, cot.CVE_CLPV, obsBitaP, nomUsuarioPedido.substring(0, 15)],
+                            (err) => err ? rej(err) : res()
+                        ));
+
+                        // Actualizar CVE_BITA en el encabezado del pedido
+                        await new Promise((res, rej) => transaction.query(
+                            `UPDATE FACTP15 SET CVE_BITA = ? WHERE CVE_DOC = ?`, [nextBitaP, clavePedido], (err) => err ? rej(err) : res()
+                        ));
+
+                        logger.info(`[saeWrite] Bitácora de pedido registrada → CVE_BITA: ${nextBitaP}, Usuario: ${nomUsuarioPedido}`);
 
                         // 5. Copiar Partidas (PAR_FACTC15 -> PAR_FACTP15) y Reservar Inventario
                         const sqlGetPar = "SELECT * FROM PAR_FACTC15 WHERE CVE_DOC = ? ORDER BY NUM_PAR ASC";
