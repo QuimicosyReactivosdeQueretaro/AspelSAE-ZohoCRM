@@ -606,6 +606,18 @@ class SaeWriteService {
                             throw new Error(`La cotización ya fue convertida previamente. Pedido: ${cot.DOC_SIG}`);
                         }
 
+                        // Validación: Bloquear a Clientes Morosos
+                        const sqlClie = "SELECT STATUS FROM CLIE15 WHERE CLAVE = ?";
+                        const clieResult = await new Promise((res, rej) => {
+                            transaction.query(sqlClie, [cot.CVE_CLPV], (err, result) => err ? rej(err) : res(result));
+                        });
+                        
+                        if (clieResult && clieResult.length > 0) {
+                            if (clieResult[0].STATUS === 'M') {
+                                throw new Error("ATENCION!!! El cliente al que intentas hacer pedido tiene un estatus de MOROSO. Hable con el directo de ventas para que le autorice este movimiento.");
+                            }
+                        }
+
                         // 2. Obtener el siguiente folio para el Pedido
                         const sqlFolio = "SELECT ULT_DOC FROM FOLIOSF15 WHERE TIP_DOC = 'P' AND SERIE = ?";
                         const folioResult = await new Promise((res, rej) => {
