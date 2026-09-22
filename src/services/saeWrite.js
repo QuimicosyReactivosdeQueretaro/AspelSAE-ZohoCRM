@@ -189,7 +189,7 @@ class SaeWriteService {
                                 'C', ?, ?, 'O', CAST(CURRENT_DATE AS TIMESTAMP), CAST(CURRENT_DATE AS TIMESTAMP), ${cotizacion.fechaVigencia ? `CAST('${cotizacion.fechaVigencia}' AS TIMESTAMP)` : `CAST(CURRENT_DATE + 15 AS TIMESTAMP)`},
                                 0, 0, 0, ?, 0, 0, 0, 0,
                                 0, ?, 1, 1.0, 0, ?, 0, ?, ?,
-                                ?, 'S', 'N', ?, ?, ?, null, 1,
+                                ?, 'S', 'N', ?, ?, ?, ?, 1,
                                 ?, 'N', 0, 0, 'N', CURRENT_TIMESTAMP, 0,
                                 'O', 'O', 'I', 0, 0, ?, ?,
                                 ?, CURRENT_TIMESTAMP, '99', 'G03', 'C', ?,
@@ -227,7 +227,7 @@ class SaeWriteService {
                             fullFolio, paddedClave, 
                             ivaFinal,
                             comisionMonto, client.RFC, nextFolioNum, serie,
-                            numAlma, subtotalFinal, paddedVendedor, cotizacion.descuentoTotal || 0, 
+                            numAlma, subtotalFinal, paddedVendedor, cotizacion.descuentoTotal || 0, (cotizacion.condicion || '').substring(0, 25),
                             nextCveInfo,
                             totalFinal, comisionPorc,
                             headerUuid, client.REG_FISC,
@@ -607,7 +607,7 @@ class SaeWriteService {
                         }
 
                         // Validación: Bloquear a Clientes Morosos
-                        const sqlClie = "SELECT STATUS FROM CLIE15 WHERE CLAVE = ?";
+                        const sqlClie = "SELECT STATUS FROM CLIE15 WHERE TRIM(CLAVE) = TRIM(?)";
                         const clieResult = await new Promise((res, rej) => {
                             transaction.query(sqlClie, [cot.CVE_CLPV], (err, result) => err ? rej(err) : res(result));
                         });
