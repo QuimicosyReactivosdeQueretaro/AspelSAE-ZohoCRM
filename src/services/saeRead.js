@@ -104,7 +104,34 @@ class SaeReadService {
                 FROM INVE15 i 
                 WHERE i.CVE_ART = ? OR TRIM(i.CVE_ART) = ?`;
             const rows = await db.query(query, [cveArt, cveArt.trim()]);
-            return rows.length > 0 ? rows[0] : null;
+            
+            // Si lo encontró con búsqueda exacta, retornar
+            if (rows.length > 0) return rows[0];
+
+            // Búsqueda flexible: limpiar caracteres invisibles y normalizar espacios
+            const cveArtLimpia = cveArt.trim().replace(/\s+/g, ' ');
+            const queryFlexible = `
+                SELECT 
+                    TRIM(i.CVE_ART) as CVE_ART,
+                    TRIM(i.DESCR) as DESCR,
+                    i.ULT_COSTO, 
+                    TRIM(i.UNI_MED) as UNI_MED, 
+                    TRIM(i.CVE_PRODSERV) as CVE_PRODSERV, 
+                    TRIM(i.CVE_UNIDAD) as CVE_UNIDAD,
+                    TRIM(i.TIPO_ELE) as TIPO_ELE,
+                    i.CVE_ESQIMPU,
+                    COALESCE((SELECT PRECIO FROM PRECIO_X_PROD15 WHERE CVE_ART = i.CVE_ART AND CVE_PRECIO = 1), 0) AS PRECIO_1,
+                    (SELECT IMPUESTO4 FROM IMPU15 WHERE CVE_ESQIMPU = i.CVE_ESQIMPU) AS TASA_IVA
+                FROM INVE15 i 
+                WHERE REPLACE(REPLACE(REPLACE(TRIM(i.CVE_ART), ASCII_CHAR(9), ''), ASCII_CHAR(10), ''), ASCII_CHAR(13), '') = ?`;
+            const rowsFlex = await db.query(queryFlexible, [cveArtLimpia]);
+
+            if (rowsFlex.length > 0) {
+                logger.info(`[saeRead] Producto '${cveArt}' encontrado con búsqueda flexible como '${rowsFlex[0].CVE_ART}'`);
+                return rowsFlex[0];
+            }
+
+            return null;
         } catch (error) {
             logger.error(`Error obteniendo producto ${cveArt}: ${error.message}`);
             throw error;
