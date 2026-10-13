@@ -36,13 +36,16 @@ app.get('/health', async (req, res) => {
         res.json({ 
             status: 'success', 
             message: 'El servidor está corriendo', 
+            empresa: db.EMPRESA,
             database: result && result.length > 0 ? 'Conectado' : 'Error',
+            databasePath: db.dbPath,
             timestamp: new Date().toISOString()
         });
     } catch (error) {
         res.status(500).json({ 
             status: 'error', 
             message: 'Error de conexión a la base de datos',
+            empresa: db.EMPRESA,
             error: error.message
         });
     }
@@ -63,7 +66,8 @@ app.use('/webhook', require('./routes/webhook'));
 app.listen(PORT, () => {
     logger.info(`Servidor Middleware Zoho-SAE iniciado en el puerto ${PORT}`);
     logger.info(`Entorno: ${process.env.NODE_ENV}`);
-    logger.info(`Base de Datos Configurada: ${process.env.SAE_DB_PATH}`);
+    logger.info(`Empresa SAE Activa: ${db.EMPRESA}`);
+    logger.info(`Base de Datos Configurada: ${db.dbPath}`);
 });
 
 /**

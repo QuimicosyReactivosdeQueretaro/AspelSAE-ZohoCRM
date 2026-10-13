@@ -65,7 +65,8 @@ router.post('/cotizacion', async (req, res) => {
             descuentoTotal: parseFloat(payload.descuentoTotal || 0), // Nuevo descuento global
             iva: parseFloat(payload.iva || 0),
             total: parseFloat(payload.total || 0),
-            propietario: payload.propietario || 'ZOHO_CRM' // Nombre del propietario para bitácora SAE
+            propietario: payload.propietario || 'ZOHO_CRM', // Nombre del propietario para bitácora SAE
+            condicion: payload.condicion || '' // Condición de pago (ej. PPD/G03)
         };
 
         // Validación básica de seguridad

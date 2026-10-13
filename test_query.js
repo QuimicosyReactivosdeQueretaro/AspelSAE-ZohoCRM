@@ -1,0 +1,1 @@
+const db=require('./src/config/database'); db.query("SELECT TRIM(RDB\) AS TABLE_NAME FROM RDB\ WHERE RDB\ = 0 AND (RDB\ LIKE '%BITA%' OR RDB\ LIKE '%CTLPOL%')").then(r => { console.table(r); process.exit(0); }).catch(console.error);

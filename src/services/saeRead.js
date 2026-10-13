@@ -123,7 +123,7 @@ class SaeReadService {
                     COALESCE((SELECT PRECIO FROM PRECIO_X_PROD15 WHERE CVE_ART = i.CVE_ART AND CVE_PRECIO = 1), 0) AS PRECIO_1,
                     (SELECT IMPUESTO4 FROM IMPU15 WHERE CVE_ESQIMPU = i.CVE_ESQIMPU) AS TASA_IVA
                 FROM INVE15 i 
-                WHERE REPLACE(REPLACE(REPLACE(TRIM(i.CVE_ART), ASCII_CHAR(9), ''), ASCII_CHAR(10), ''), ASCII_CHAR(13), '') = ?`;
+                WHERE REPLACE(REPLACE(REPLACE(REPLACE(REPLACE(TRIM(i.CVE_ART), ASCII_CHAR(9), ''), ASCII_CHAR(10), ''), ASCII_CHAR(13), ''), '  ', ' '), '  ', ' ') = ?`;
             const rowsFlex = await db.query(queryFlexible, [cveArtLimpia]);
 
             if (rowsFlex.length > 0) {
